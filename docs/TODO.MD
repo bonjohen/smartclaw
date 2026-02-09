@@ -147,19 +147,19 @@
 
 > **Goal**: Backend adapters can send requests to OpenAI-compatible and Anthropic endpoints, with SSE streaming passthrough. Tested against mocked HTTP responses.
 
-- [ ] **3.1** Define backend interface (`src/backends/backend.ts`)
+- [x] **3.1** Define backend interface (`src/backends/backend.ts`)
   - `Backend` interface: `sendRequest(model: ModelRecord, request: ChatRequest): Promise<StreamResponse>`
   - `StreamResponse` type: readable stream of OpenAI-format SSE chunks + metadata (model used, usage stats)
   - Backend factory: given a `ModelRecord`, return the appropriate backend instance
 
-- [ ] **3.2** Implement OpenAI-compatible backend (`src/backends/openai-backend.ts`)
+- [x] **3.2** Implement OpenAI-compatible backend (`src/backends/openai-backend.ts`)
   - Send request to model's `endpoint_url` using `undici` for streaming
   - Pass through SSE chunks as-is (local Ollama, LAN Ollama, and OpenAI cloud all use this format)
   - Extract token usage from final chunk or `usage` field
   - Handle connection errors, timeouts, HTTP error status codes
   - Support `api_key_env` lookup for cloud models (read API key from env)
 
-- [ ] **3.3** Implement Anthropic backend adapter (`src/backends/anthropic-backend.ts`)
+- [x] **3.3** Implement Anthropic backend adapter (`src/backends/anthropic-backend.ts`)
   - Translate OpenAI chat format → Anthropic Messages API format (PDR Section 7.6)
   - Map model IDs: `anthropic/claude-sonnet` → actual Anthropic model ID (e.g., `claude-sonnet-4-5-20250929`)
   - Send request to Anthropic API using `undici` with streaming
@@ -167,14 +167,14 @@
   - Extract token usage from Anthropic `message_delta` events
   - Include `anthropic-version` header, `x-api-key` header
 
-- [ ] **3.4** Implement retry-with-candidates logic (`src/backends/route-with-retry.ts`)
+- [x] **3.4** Implement retry-with-candidates logic (`src/backends/route-with-retry.ts`)
   - Iterate through `RankedCandidate[]`, try each in order (PDR Section 7.4)
   - On 429: mark provider as rate-limited in `provider_rate_limits`
   - On timeout: mark model as unhealthy in `models`
   - On other errors: log and continue to next candidate
   - If all candidates exhausted: throw `NoAvailableModelError`
 
-- [ ] **3.5** Write backend tests (`test/backends.test.ts`)
+- [x] **3.5** Write backend tests (`test/backends.test.ts`)
   - Test: OpenAI backend sends correct request format
   - Test: OpenAI backend streams SSE chunks correctly (mock HTTP server)
   - Test: Anthropic backend translates request format correctly
@@ -319,7 +319,7 @@
 |-------|-------------|-------|--------|
 | 1 | Project Foundation & Database Layer | 1.1–1.6 | **Complete** |
 | 2 | Routing Engine | 2.1–2.9 | **Complete** |
-| 3 | Backend Adapters | 3.1–3.5 | Not started |
+| 3 | Backend Adapters | 3.1–3.5 | **Complete** |
 | 4 | HTTP Server & API Endpoints | 4.1–4.5 | Not started |
 | 5 | Health Monitoring & Budget Management | 5.1–5.3 | Not started |
 | 6 | Integration & Assembly | 6.1–6.6 | Not started |

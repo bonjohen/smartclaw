@@ -273,7 +273,7 @@
 
 > **Goal**: Full server assembly, CLAUDE.md, stats endpoint, and end-to-end verification. The system is ready to run.
 
-- [ ] **6.1** Implement application entry point (`src/index.ts`)
+- [x] **6.1** Implement application entry point (`src/index.ts`)
   - Load config
   - Initialize DB and run migrations
   - Create Fastify server with all routes
@@ -281,21 +281,21 @@
   - Listen on configured port
   - Graceful shutdown: close server, stop health checker, close DB
 
-- [ ] **6.2** Implement GET `/stats` endpoint (`src/routes/stats.ts`)
+- [x] **6.2** Implement GET `/stats` endpoint (`src/routes/stats.ts`)
   - Query `request_log` for routing distribution (requests per tier, per model)
   - Query `budget_tracking` for cost breakdown (daily, monthly)
   - Query model usage stats (most used, average latency)
   - Return structured JSON summary
 
-- [ ] **6.3** Create CLAUDE.md at project root
+- [x] **6.3** Create CLAUDE.md at project root
   - Content from PDR Section 10
   - Project description, architecture, key files, conventions, build/run commands, critical behaviors
 
-- [ ] **6.4** Create `.env.example` with documentation comments
+- [x] **6.4** Create `.env.example` with documentation comments (done in 1.1)
   - All environment variables from PDR Section 8
   - Comments explaining each variable
 
-- [ ] **6.5** Write integration tests (`test/integration.test.ts`)
+- [x] **6.5** Write integration tests (`test/integration.test.ts`)
   - Test: full server starts and responds to /health
   - Test: /v1/models returns seeded model list
   - Test: /v1/chat/completions with mocked backend returns streamed response
@@ -303,7 +303,7 @@
   - Test: budget updated after request
   - Test: /stats returns usage data after requests
 
-- [ ] **6.6** Final review and cleanup
+- [x] **6.6** Final review and cleanup
   - Verify all tests pass: `npm test`
   - Verify build succeeds: `npm run build`
   - Verify dev mode starts: `npm run dev`
@@ -322,4 +322,4 @@
 | 3 | Backend Adapters | 3.1–3.5 | **Complete** |
 | 4 | HTTP Server & API Endpoints | 4.1–4.5 | **Complete** |
 | 5 | Health Monitoring & Budget Management | 5.1–5.3 | **Complete** |
-| 6 | Integration & Assembly | 6.1–6.6 | Not started |
+| 6 | Integration & Assembly | 6.1–6.6 | **Complete** |

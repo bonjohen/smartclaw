@@ -1,4 +1,4 @@
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyError } from 'fastify';
 import type Database from 'better-sqlite3';
 import type { RouterOptions } from './router/router.js';
 import { registerChatCompletions } from './routes/chat-completions.js';
@@ -35,7 +35,7 @@ export function createServer(options: ServerOptions): FastifyInstance {
   registerHealth(app, db);
 
   // Global error handler
-  app.setErrorHandler((error, _request, reply) => {
+  app.setErrorHandler((error: FastifyError, _request, reply) => {
     const statusCode = error.statusCode ?? 500;
     reply.status(statusCode).send({
       error: {

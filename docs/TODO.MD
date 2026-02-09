@@ -62,13 +62,13 @@
 
 > **Goal**: The three-tier routing decision engine works end-to-end with mocked/stubbed backends. No HTTP server yet — pure logic.
 
-- [ ] **2.1** Implement Tier 1 rule matcher (`src/router/tier1-rules.ts`)
+- [x] **2.1** Implement Tier 1 rule matcher (`src/router/tier1-rules.ts`)
   - Query `routing_rules` ordered by priority where `is_enabled = 1`
   - Match against request metadata: `source`, `channel`, `match_pattern` (regex), `match_has_media`, `match_token_max`
   - Return first matching rule's `target_action` and `target_model_id`, or `null` if no match
   - Handle `route_self`, `classify`, `route`, `reject`, `queue` actions
 
-- [ ] **2.2** Write Tier 1 tests (`test/tier1-rules.test.ts`)
+- [x] **2.2** Write Tier 1 tests (`test/tier1-rules.test.ts`)
   - Test: heartbeat source → `route_self` to 1.5B (priority 10)
   - Test: cron source → `route_self` to 1.5B (priority 20)
   - Test: `/status` command → `route_self` (priority 30)
@@ -81,14 +81,14 @@
   - Test: disabled rules are skipped
   - Test: priority ordering is respected (lower number = higher priority)
 
-- [ ] **2.3** Implement candidate selection (`src/router/candidate-select.ts`)
+- [x] **2.3** Implement candidate selection (`src/router/candidate-select.ts`)
   - Query eligible models from DB given: `quality_floor`, `required_capability`, `sensitive` flag, `estimated_tokens`
   - Apply hard filters: meets quality floor, has capability, is healthy, is enabled, not rate-limited, within budget (exclude cloud if budget exceeded)
   - Apply quality tolerance from `routing_policy.quality_tolerance` (PDR Section 7.2)
   - Sort by: prefer local > LAN > cloud, then cheapest, then highest quality (tiebreak)
   - Return `RankedCandidate[]`
 
-- [ ] **2.4** Write candidate selection tests (`test/candidate-select.test.ts`)
+- [x] **2.4** Write candidate selection tests (`test/candidate-select.test.ts`)
   - Test: simple request (floor=0) → selects cheapest local model
   - Test: medium coding (floor=40) → selects 7B local if healthy, else LAN 32B
   - Test: complex coding (floor=65) → selects LAN 32B (quality 68)
@@ -101,7 +101,7 @@
   - Test: estimated_tokens exceeding context_window → model excluded
   - Test: required capability filtering works (e.g., "math" only returns Opus/GPT-5.2)
 
-- [ ] **2.5** Implement Tier 2 classification (`src/router/tier2-classify.ts`)
+- [x] **2.5** Implement Tier 2 classification (`src/router/tier2-classify.ts`)
   - Send classification prompt to 1.5B model via Ollama HTTP API (PDR Section 7.1)
   - Parse JSON response into `ClassificationResult`
   - Map `complexity` → `quality_floor` via `complexity_quality_map` table
@@ -109,7 +109,7 @@
   - Handle parse failures gracefully (default to `medium` complexity)
   - Respect timeout (e.g., 5s max for classification)
 
-- [ ] **2.6** Write Tier 2 tests (`test/tier2-classify.test.ts`)
+- [x] **2.6** Write Tier 2 tests (`test/tier2-classify.test.ts`)
   - Test: valid JSON response is parsed correctly
   - Test: complexity maps to correct quality_floor (simple=0, medium=40, complex=65, reasoning=80)
   - Test: task_type maps to correct capability
@@ -117,12 +117,12 @@
   - Test: timeout returns default classification
   - Test: sensitive=true is propagated correctly
 
-- [ ] **2.7** Implement Tier 3 fallback (`src/router/tier3-fallback.ts`)
+- [x] **2.7** Implement Tier 3 fallback (`src/router/tier3-fallback.ts`)
   - Read `routing_policy.fallback_model_id` from DB
   - Return fallback model as sole candidate if available and healthy
   - Return empty list (triggering 503) if fallback is also unavailable
 
-- [ ] **2.8** Implement router orchestrator (`src/router/router.ts`)
+- [x] **2.8** Implement router orchestrator (`src/router/router.ts`)
   - Orchestrate: Tier 1 → (if classify) Tier 2 → candidate selection → (if empty) Tier 3
   - For `route_self` actions, return the target model directly
   - For `classify` actions, run Tier 2 then candidate selection
@@ -130,7 +130,7 @@
   - Produce `RoutingDecision` with tier used, selected model, classification, rule_id
   - Handle all error paths (no candidates, classification failure, etc.)
 
-- [ ] **2.9** Write router orchestrator tests (`test/router.test.ts`)
+- [x] **2.9** Write router orchestrator tests (`test/router.test.ts`)
   - Test: heartbeat → Tier 1 resolves to 1.5B, no Tier 2 called
   - Test: greeting → Tier 1 resolves to 1.5B
   - Test: code request → Tier 1 yields `classify` → Tier 2 runs → candidate selected
@@ -318,7 +318,7 @@
 | Phase | Description | Steps | Status |
 |-------|-------------|-------|--------|
 | 1 | Project Foundation & Database Layer | 1.1–1.6 | **Complete** |
-| 2 | Routing Engine | 2.1–2.9 | Not started |
+| 2 | Routing Engine | 2.1–2.9 | **Complete** |
 | 3 | Backend Adapters | 3.1–3.5 | Not started |
 | 4 | HTTP Server & API Endpoints | 4.1–4.5 | Not started |
 | 5 | Health Monitoring & Budget Management | 5.1–5.3 | Not started |

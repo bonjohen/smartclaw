@@ -194,14 +194,14 @@
 
 > **Goal**: Fastify server exposes the OpenAI-compatible API. Requests flow from HTTP → router → backend → SSE stream back to client.
 
-- [ ] **4.1** Implement Fastify server setup (`src/server.ts`)
+- [x] **4.1** Implement Fastify server setup (`src/server.ts`)
   - Create Fastify instance with logging
   - Register routes from `src/routes/`
   - Attach DB instance and router to request context (Fastify decorators or dependency injection)
   - CORS configuration for local development
   - Error handling middleware (map internal errors to HTTP status codes)
 
-- [ ] **4.2** Implement POST `/v1/chat/completions` (`src/routes/chat-completions.ts`)
+- [x] **4.2** Implement POST `/v1/chat/completions` (`src/routes/chat-completions.ts`)
   - Parse OpenAI-format request body
   - Extract routing metadata: text preview (first message content), token estimate, media presence, source header
   - Call router to get `RoutingDecision`
@@ -211,16 +211,16 @@
   - On completion: log to `request_log`, update `budget_tracking`
   - Support both `stream: true` (SSE) and `stream: false` (buffered JSON)
 
-- [ ] **4.3** Implement GET `/v1/models` (`src/routes/models.ts`)
+- [x] **4.3** Implement GET `/v1/models` (`src/routes/models.ts`)
   - Query all enabled models from DB
   - Return in OpenAI `/v1/models` response format (`data` array with `id`, `object`, `created`, `owned_by`)
 
-- [ ] **4.4** Implement GET `/health` (`src/routes/health.ts`)
+- [x] **4.4** Implement GET `/health` (`src/routes/health.ts`)
   - Return proxy status, DB connectivity check
   - Include summary: total models, healthy count, unhealthy count
   - Include budget status (daily/monthly spend vs limits)
 
-- [ ] **4.5** Write HTTP endpoint tests (`test/routes.test.ts`)
+- [x] **4.5** Write HTTP endpoint tests (`test/routes.test.ts`)
   - Test: POST /v1/chat/completions returns SSE stream with correct headers
   - Test: POST /v1/chat/completions with `stream: false` returns buffered JSON
   - Test: response includes X-Router-Model and X-Router-Tier headers
@@ -320,6 +320,6 @@
 | 1 | Project Foundation & Database Layer | 1.1–1.6 | **Complete** |
 | 2 | Routing Engine | 2.1–2.9 | **Complete** |
 | 3 | Backend Adapters | 3.1–3.5 | **Complete** |
-| 4 | HTTP Server & API Endpoints | 4.1–4.5 | Not started |
+| 4 | HTTP Server & API Endpoints | 4.1–4.5 | **Complete** |
 | 5 | Health Monitoring & Budget Management | 5.1–5.3 | Not started |
 | 6 | Integration & Assembly | 6.1–6.6 | Not started |

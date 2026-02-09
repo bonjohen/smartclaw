@@ -238,7 +238,7 @@
 
 > **Goal**: Background health checks keep model status current. Budget tracking gates cloud access when spending limits are reached.
 
-- [ ] **5.1** Implement health checker (`src/health/health-checker.ts`)
+- [x] **5.1** Implement health checker (`src/health/health-checker.ts`)
   - Background loop pings all enabled models every `HEALTH_CHECK_INTERVAL_MS` (PDR Section 7.5)
   - Ping endpoint: `GET {endpoint_url}/models` with 5s timeout
   - On success: mark healthy, record latency, reset consecutive failures
@@ -247,14 +247,14 @@
   - Recovery: successful ping after unhealthy → set `is_healthy = 1`, reset counter
   - Graceful shutdown: stop loop on SIGTERM/SIGINT
 
-- [ ] **5.2** Implement budget tracker (`src/health/budget-tracker.ts`)
+- [x] **5.2** Implement budget tracker (`src/health/budget-tracker.ts`)
   - Called after each request completion with token counts and model cost data
   - Calculate cost: `(input_tokens * cost_input + output_tokens * cost_output) / 1_000_000`
   - Upsert into `budget_tracking` for current daily and monthly periods
   - Export `isBudgetExceeded()` function: checks daily and monthly totals against `routing_policy` limits
   - Used by candidate selection to exclude cloud models when budget is exceeded
 
-- [ ] **5.3** Write health & budget tests (`test/health-budget.test.ts`)
+- [x] **5.3** Write health & budget tests (`test/health-budget.test.ts`)
   - Test: healthy model is marked healthy with latency recorded
   - Test: failed ping increments consecutive_failures
   - Test: 3 consecutive failures marks model unhealthy
@@ -321,5 +321,5 @@
 | 2 | Routing Engine | 2.1–2.9 | **Complete** |
 | 3 | Backend Adapters | 3.1–3.5 | **Complete** |
 | 4 | HTTP Server & API Endpoints | 4.1–4.5 | **Complete** |
-| 5 | Health Monitoring & Budget Management | 5.1–5.3 | Not started |
+| 5 | Health Monitoring & Budget Management | 5.1–5.3 | **Complete** |
 | 6 | Integration & Assembly | 6.1–6.6 | Not started |

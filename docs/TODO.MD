@@ -313,6 +313,62 @@
 
 ---
 
+## Phase 7: Test Coverage & Docker Containerization
+
+> **Goal**: Fill remaining test coverage gaps and containerize the application for deployment.
+
+### Phase 7A: Fill Test Coverage Gaps
+
+- [x] **7A.1** Config tests (`test/config.test.ts`)
+  - Test `loadConfig()` with default values when no env vars set
+  - Test custom env var overrides (PORT, DB_PATH, OLLAMA_ENDPOINT, etc.)
+  - Test `~` path expansion in DB_PATH
+  - Test validation: invalid port range, invalid interval
+
+- [x] **7A.2** Tier 3 fallback isolated tests (`test/tier3-fallback.test.ts`)
+  - Test `getFallbackCandidate(db)` returns the configured fallback model
+  - Test returns `null` when fallback model is unhealthy
+  - Test returns `null` when fallback model is disabled
+  - Test returns `null` when fallback_model_id is missing from policy
+
+- [x] **7A.3** OpenAI backend tests (`test/openai-backend.test.ts`)
+  - Test `OpenAIBackend.sendRequest()` constructs correct fetch URL and headers
+  - Test `parseSSEStream()` with multi-chunk SSE text (data: lines, [DONE])
+  - Test API key resolution from environment variables
+  - Test error handling for non-2xx responses
+
+- [x] **7A.4** Anthropic backend stream tests (added to `test/backends.test.ts`)
+  - Test `translateAnthropicStream()` with message_start, content_block_delta, message_delta events
+  - Test usage extraction from message_start and message_delta
+  - Test stop reason mapping (end_turn→stop, max_tokens→length)
+  - Test multi-chunk content assembly
+
+- [x] **7A.5** Run full test suite — all tests pass
+
+### Phase 7B: Docker Containerization
+
+- [x] **7B.1** Create `.dockerignore`
+  - Exclude: node_modules, dist, .git, docs, .env, *.log, test, .claude, coverage
+
+- [x] **7B.2** Create `Dockerfile`
+  - Multi-stage build: node:22-bookworm (builder) + node:22-bookworm-slim (runtime)
+  - Install build-essential + python3 for better-sqlite3 native compilation
+  - Tini for proper signal handling
+  - Non-root `openclaw` user
+  - HEALTHCHECK against /health endpoint
+
+- [x] **7B.3** Create `docker-compose.yml`
+  - Named volume for SQLite persistence
+  - extra_hosts for host.docker.internal (LAN Ollama access)
+  - Resource limits (1 CPU, 512MB)
+  - json-file logging with rotation
+
+- [x] **7B.4** Update `docs/TODO.MD` with Phase 7 tracking
+
+**Phase 7 Checkpoint:** All tests pass, Docker build succeeds. Commit and tag.
+
+---
+
 ## Summary
 
 | Phase | Description | Steps | Status |
@@ -323,3 +379,4 @@
 | 4 | HTTP Server & API Endpoints | 4.1–4.5 | **Complete** |
 | 5 | Health Monitoring & Budget Management | 5.1–5.3 | **Complete** |
 | 6 | Integration & Assembly | 6.1–6.6 | **Complete** |
+| 7 | Test Coverage & Docker Containerization | 7A.1–7B.4 | **Complete** |

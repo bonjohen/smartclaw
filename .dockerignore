@@ -1,0 +1,14 @@
+node_modules
+dist
+.git
+.gitignore
+docs
+.env
+*.log
+test
+.claude
+coverage
+*.db
+*.tsbuildinfo
+CLAUDE.md
+vitest.config.ts

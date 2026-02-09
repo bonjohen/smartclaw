@@ -316,7 +316,265 @@ describe('routeWithRetry', () => {
   });
 });
 
+// ── Anthropic stream translation tests ──
+
+describe('AnthropicBackend stream translation', () => {
+  it('should translate message_start event to role chunk', async () => {
+    const originalFetch = globalThis.fetch;
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+
+    const events = [
+      { type: 'message_start', message: { id: 'msg_1', role: 'assistant' } },
+    ];
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      body: createAnthropicSSEStream(events),
+    });
+
+    const { AnthropicBackend } = await import('../src/backends/anthropic-backend.js');
+    const backend = new AnthropicBackend();
+    const model = getModel('anthropic/claude-sonnet');
+    const result = await backend.sendRequest(model, makeRequest());
+
+    const received: ChatCompletionChunk[] = [];
+    for await (const chunk of result.stream) {
+      received.push(chunk);
+    }
+
+    expect(received.length).toBeGreaterThanOrEqual(1);
+    expect(received[0].choices[0].delta.role).toBe('assistant');
+
+    globalThis.fetch = originalFetch;
+    delete process.env.ANTHROPIC_API_KEY;
+  });
+
+  it('should translate content_block_delta events to content chunks', async () => {
+    const originalFetch = globalThis.fetch;
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+
+    const events = [
+      { type: 'message_start', message: { id: 'msg_1' } },
+      { type: 'content_block_delta', delta: { text: 'Hello' } },
+      { type: 'content_block_delta', delta: { text: ' world' } },
+    ];
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      body: createAnthropicSSEStream(events),
+    });
+
+    const { AnthropicBackend } = await import('../src/backends/anthropic-backend.js');
+    const backend = new AnthropicBackend();
+    const model = getModel('anthropic/claude-sonnet');
+    const result = await backend.sendRequest(model, makeRequest());
+
+    const received: ChatCompletionChunk[] = [];
+    for await (const chunk of result.stream) {
+      received.push(chunk);
+    }
+
+    // Filter content chunks (skip role-only chunks)
+    const contentChunks = received.filter(c => c.choices[0].delta.content && c.choices[0].delta.content !== '');
+    expect(contentChunks).toHaveLength(2);
+    expect(contentChunks[0].choices[0].delta.content).toBe('Hello');
+    expect(contentChunks[1].choices[0].delta.content).toBe(' world');
+
+    globalThis.fetch = originalFetch;
+    delete process.env.ANTHROPIC_API_KEY;
+  });
+
+  it('should translate message_delta with stop reason', async () => {
+    const originalFetch = globalThis.fetch;
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+
+    const events = [
+      { type: 'message_start', message: { id: 'msg_1' } },
+      { type: 'content_block_delta', delta: { text: 'Hi' } },
+      { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 5 } },
+    ];
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      body: createAnthropicSSEStream(events),
+    });
+
+    const { AnthropicBackend } = await import('../src/backends/anthropic-backend.js');
+    const backend = new AnthropicBackend();
+    const model = getModel('anthropic/claude-sonnet');
+    const result = await backend.sendRequest(model, makeRequest());
+
+    const received: ChatCompletionChunk[] = [];
+    for await (const chunk of result.stream) {
+      received.push(chunk);
+    }
+
+    // Last chunk should have the stop reason mapped from end_turn→stop
+    const lastChunk = received[received.length - 1];
+    expect(lastChunk.choices[0].finish_reason).toBe('stop');
+
+    globalThis.fetch = originalFetch;
+    delete process.env.ANTHROPIC_API_KEY;
+  });
+
+  it('should map max_tokens stop reason to length', async () => {
+    const originalFetch = globalThis.fetch;
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+
+    const events = [
+      { type: 'message_start', message: { id: 'msg_1' } },
+      { type: 'message_delta', delta: { stop_reason: 'max_tokens' }, usage: { output_tokens: 100 } },
+    ];
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      body: createAnthropicSSEStream(events),
+    });
+
+    const { AnthropicBackend } = await import('../src/backends/anthropic-backend.js');
+    const backend = new AnthropicBackend();
+    const model = getModel('anthropic/claude-sonnet');
+    const result = await backend.sendRequest(model, makeRequest());
+
+    const received: ChatCompletionChunk[] = [];
+    for await (const chunk of result.stream) {
+      received.push(chunk);
+    }
+
+    const deltaChunk = received.find(c => c.choices[0].finish_reason === 'length');
+    expect(deltaChunk).toBeDefined();
+
+    globalThis.fetch = originalFetch;
+    delete process.env.ANTHROPIC_API_KEY;
+  });
+
+  it('should extract usage from message_delta', async () => {
+    const originalFetch = globalThis.fetch;
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+
+    const events = [
+      { type: 'message_start', message: { id: 'msg_1' } },
+      { type: 'message_delta', delta: { stop_reason: 'end_turn' },
+        usage: { input_tokens: 50, output_tokens: 25 } },
+    ];
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      body: createAnthropicSSEStream(events),
+    });
+
+    const { AnthropicBackend } = await import('../src/backends/anthropic-backend.js');
+    const backend = new AnthropicBackend();
+    const model = getModel('anthropic/claude-sonnet');
+    const result = await backend.sendRequest(model, makeRequest());
+
+    const received: ChatCompletionChunk[] = [];
+    for await (const chunk of result.stream) {
+      received.push(chunk);
+    }
+
+    const usageChunk = received.find(c => c.usage !== undefined);
+    expect(usageChunk).toBeDefined();
+    expect(usageChunk!.usage!.prompt_tokens).toBe(50);
+    expect(usageChunk!.usage!.completion_tokens).toBe(25);
+    expect(usageChunk!.usage!.total_tokens).toBe(75);
+
+    globalThis.fetch = originalFetch;
+    delete process.env.ANTHROPIC_API_KEY;
+  });
+
+  it('should skip unknown event types', async () => {
+    const originalFetch = globalThis.fetch;
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+
+    const events = [
+      { type: 'message_start', message: { id: 'msg_1' } },
+      { type: 'ping' },
+      { type: 'content_block_start', content_block: { type: 'text', text: '' } },
+      { type: 'content_block_delta', delta: { text: 'Hello' } },
+      { type: 'content_block_stop', index: 0 },
+      { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 5 } },
+    ];
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      body: createAnthropicSSEStream(events),
+    });
+
+    const { AnthropicBackend } = await import('../src/backends/anthropic-backend.js');
+    const backend = new AnthropicBackend();
+    const model = getModel('anthropic/claude-sonnet');
+    const result = await backend.sendRequest(model, makeRequest());
+
+    const received: ChatCompletionChunk[] = [];
+    for await (const chunk of result.stream) {
+      received.push(chunk);
+    }
+
+    // Should only get message_start, content_block_delta, and message_delta chunks
+    // ping, content_block_start, and content_block_stop should be skipped
+    expect(received).toHaveLength(3);
+
+    globalThis.fetch = originalFetch;
+    delete process.env.ANTHROPIC_API_KEY;
+  });
+
+  it('should set correct model_id on translated chunks', async () => {
+    const originalFetch = globalThis.fetch;
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+
+    const events = [
+      { type: 'message_start', message: { id: 'msg_1' } },
+      { type: 'content_block_delta', delta: { text: 'test' } },
+    ];
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      body: createAnthropicSSEStream(events),
+    });
+
+    const { AnthropicBackend } = await import('../src/backends/anthropic-backend.js');
+    const backend = new AnthropicBackend();
+    const model = getModel('anthropic/claude-sonnet');
+    const result = await backend.sendRequest(model, makeRequest());
+
+    expect(result.model_id).toBe('anthropic/claude-sonnet');
+
+    const received: ChatCompletionChunk[] = [];
+    for await (const chunk of result.stream) {
+      received.push(chunk);
+    }
+
+    for (const chunk of received) {
+      expect(chunk.model).toBe('anthropic/claude-sonnet');
+    }
+
+    globalThis.fetch = originalFetch;
+    delete process.env.ANTHROPIC_API_KEY;
+  });
+});
+
 // ── Helpers ──
+
+/**
+ * Create a mock ReadableStream that emits Anthropic SSE-formatted events.
+ */
+function createAnthropicSSEStream(events: any[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  let index = 0;
+
+  return new ReadableStream({
+    pull(controller) {
+      if (index < events.length) {
+        const data = `data: ${JSON.stringify(events[index])}\n\n`;
+        controller.enqueue(encoder.encode(data));
+        index++;
+      } else {
+        controller.close();
+      }
+    },
+  });
+}
 
 /**
  * Create a mock ReadableStream that emits SSE-formatted data.

@@ -59,12 +59,12 @@ The test suite is well-structured with 12 test files covering most modules via i
 
 - [x] **Performance** `src/router/candidate-select.ts:L72-85` — Sort comparator computes `a.cost_input + a.cost_output` on every comparison. For large candidate lists this is negligible, but a pre-computed sort key would be cleaner. **Risk**: Negligible. **Action**: Pre-compute total cost before sorting. Low priority. **FIXED**: Sort keys (location index + total cost) pre-computed into a Map before sorting.
 
-## Observations
+## Observations (all resolved)
 
-- **Rate limiting is write-only**: The system marks providers as rate-limited but never auto-clears the flag. This is the most architecturally concerning gap — it creates a one-way ratchet toward degraded service.
-- **Cost tracking uses wrong model**: The `logRequest` function in chat-completions.ts calculates cost from `candidates[0]` rather than the model that actually served the request (which may be candidates[1] or later after retries). This silently corrupts budget data.
-- **Duplicate code for budget checking**: `isBudgetExceeded` exists in both `candidate-select.ts` (private) and `budget-tracker.ts` (exported), creating a maintenance hazard.
-- **No auth anywhere**: All endpoints are completely unauthenticated, including the stats endpoint that exposes user message content. This is acceptable for local dev but dangerous if exposed beyond localhost.
-- **Tests only cover happy-path streaming**: Streaming tests verify correct SSE output but don't test client disconnect, mid-stream errors, or backend returning invalid SSE. The `success` flag is never tested as `false`.
-- **globalThis.fetch mocking pattern is fragile**: Multiple test files mock `globalThis.fetch` and restore it manually in each test, without using `vi.stubGlobal` or `afterEach` cleanup — a thrown assertion before restore would leak the mock to subsequent tests.
-- **No test for the /stats endpoint in isolation**: The stats endpoint is only tested via `integration.test.ts`; there are no unit tests for edge cases (empty DB, malformed data, large result sets).
+- ~~**Rate limiting is write-only**~~: **RESOLVED** — `clearExpiredRateLimits()` auto-clears expired rate limits before every candidate selection. Tests verify expiry and non-expiry.
+- ~~**Cost tracking uses wrong model**~~: **RESOLVED** — `routeWithRetry` returns the actual serving model via `StreamResponse.model`. `logRequest` uses `actualModel` for cost calculation. Test verifies correct cost after retry.
+- ~~**Duplicate code for budget checking**~~: **RESOLVED** — Private `isBudgetExceeded` removed from `candidate-select.ts`; now imports the shared implementation from `budget-tracker.ts`.
+- ~~**No auth anywhere**~~: **RESOLVED** — Bearer token auth via `ROUTER_API_KEY` env var on all routes except `/health`. 5 tests verify auth behavior. `/stats` no longer exposes `request_preview`.
+- ~~**Tests only cover happy-path streaming**~~: **RESOLVED** — Tests now cover streaming errors (`success: false`), non-streaming errors (502 on empty chunks, 500 on throw), and client disconnect abort. 250 tests total.
+- ~~**globalThis.fetch mocking pattern is fragile**~~: **RESOLVED** — All fetch mocking test blocks use `afterEach` cleanup with saved `originalFetch` reference, preventing mock leaks on assertion failure.
+- ~~**No test for the /stats endpoint in isolation**~~: **RESOLVED** — Dedicated unit tests for `/stats` with populated budget data and PII redaction verification in `review-fixes.test.ts`.

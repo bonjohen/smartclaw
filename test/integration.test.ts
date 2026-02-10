@@ -56,9 +56,11 @@ function makeDecision(modelId: string, tier: 1 | 2 | 3 = 1): RoutingDecision {
 }
 
 function makeMockStream(chunks: ChatCompletionChunk[], modelId: string) {
+  const model = getModel(modelId);
   return {
     stream: (async function* () { for (const c of chunks) yield c; })(),
     model_id: modelId,
+    model,
     abort: () => {},
   };
 }

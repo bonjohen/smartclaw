@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type Database from 'better-sqlite3';
-import type { ChatRequest, ChatCompletionChunk } from '../types.js';
+import type { ChatRequest, ChatCompletionChunk, ModelRecord } from '../types.js';
 import { NoAvailableModelError } from '../types.js';
 import { routeRequest, type RouterOptions } from '../router/router.js';
 import { routeWithRetry } from '../backends/route-with-retry.js';
@@ -15,12 +15,44 @@ interface ChatCompletionsBody {
   stop?: string | string[];
 }
 
+const chatCompletionsSchema = {
+  body: {
+    type: 'object',
+    required: ['messages'],
+    properties: {
+      model: { type: 'string' },
+      messages: {
+        type: 'array',
+        minItems: 1,
+        items: {
+          type: 'object',
+          required: ['role', 'content'],
+          properties: {
+            role: { type: 'string', enum: ['system', 'user', 'assistant'] },
+            content: { type: ['string', 'null'] },
+          },
+        },
+      },
+      stream: { type: 'boolean' },
+      max_tokens: { type: 'integer', minimum: 1 },
+      temperature: { type: 'number', minimum: 0, maximum: 2 },
+      top_p: { type: 'number', minimum: 0, maximum: 1 },
+      stop: {
+        oneOf: [
+          { type: 'string' },
+          { type: 'array', items: { type: 'string' } },
+        ],
+      },
+    },
+  },
+};
+
 export function registerChatCompletions(
   app: FastifyInstance,
   db: Database.Database,
   routerOptions: RouterOptions
 ): void {
-  app.post('/v1/chat/completions', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/v1/chat/completions', { schema: chatCompletionsSchema }, async (request: FastifyRequest, reply: FastifyReply) => {
     const body = request.body as ChatCompletionsBody;
 
     if (!body?.messages || !Array.isArray(body.messages) || body.messages.length === 0) {
@@ -80,6 +112,12 @@ export function registerChatCompletions(
     }
 
     const isStreaming = chatRequest.stream !== false;
+    const actualModel = streamResponse.model;
+
+    // Abort backend stream if client disconnects
+    request.raw.on('close', () => {
+      streamResponse.abort();
+    });
 
     if (isStreaming) {
       // SSE streaming response
@@ -96,6 +134,7 @@ export function registerChatCompletions(
 
       let inputTokens = 0;
       let outputTokens = 0;
+      let success = true;
 
       try {
         for await (const chunk of streamResponse.stream) {
@@ -110,45 +149,59 @@ export function registerChatCompletions(
 
         reply.raw.write('data: [DONE]\n\n');
       } catch (err: any) {
+        success = false;
         // Stream error — write error event and close
         reply.raw.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
       } finally {
         reply.raw.end();
-        logRequest(db, decision, startTime, inputTokens, outputTokens, true, chatRequest);
+        logRequest(db, decision, actualModel, startTime, inputTokens, outputTokens, success, chatRequest);
       }
     } else {
       // Non-streaming: collect all chunks into a single response
-      const chunks: ChatCompletionChunk[] = [];
-      for await (const chunk of streamResponse.stream) {
-        chunks.push(chunk);
+      let success = true;
+      try {
+        const chunks: ChatCompletionChunk[] = [];
+        for await (const chunk of streamResponse.stream) {
+          chunks.push(chunk);
+        }
+
+        if (chunks.length === 0) {
+          logRequest(db, decision, actualModel, startTime, 0, 0, false, chatRequest);
+          return reply.status(502).send({
+            error: { message: 'Backend returned no response data', type: 'server_error' },
+          });
+        }
+
+        const lastChunk = chunks[chunks.length - 1];
+        const content = chunks
+          .map(c => c.choices?.[0]?.delta?.content ?? '')
+          .join('');
+
+        const inputTokens = lastChunk?.usage?.prompt_tokens ?? 0;
+        const outputTokens = lastChunk?.usage?.completion_tokens ?? 0;
+
+        logRequest(db, decision, actualModel, startTime, inputTokens, outputTokens, true, chatRequest);
+
+        return reply.send({
+          id: lastChunk?.id ?? `chatcmpl-${Date.now()}`,
+          object: 'chat.completion',
+          created: lastChunk?.created ?? Math.floor(Date.now() / 1000),
+          model: decision.selected_model,
+          choices: [{
+            index: 0,
+            message: { role: 'assistant', content },
+            finish_reason: lastChunk?.choices?.[0]?.finish_reason ?? 'stop',
+          }],
+          usage: {
+            prompt_tokens: inputTokens,
+            completion_tokens: outputTokens,
+            total_tokens: inputTokens + outputTokens,
+          },
+        });
+      } catch (err: any) {
+        logRequest(db, decision, actualModel, startTime, 0, 0, false, chatRequest);
+        throw err;
       }
-
-      const lastChunk = chunks[chunks.length - 1];
-      const content = chunks
-        .map(c => c.choices?.[0]?.delta?.content ?? '')
-        .join('');
-
-      const inputTokens = lastChunk?.usage?.prompt_tokens ?? 0;
-      const outputTokens = lastChunk?.usage?.completion_tokens ?? 0;
-
-      logRequest(db, decision, startTime, inputTokens, outputTokens, true, chatRequest);
-
-      return reply.send({
-        id: lastChunk?.id ?? `chatcmpl-${Date.now()}`,
-        object: 'chat.completion',
-        created: lastChunk?.created ?? Math.floor(Date.now() / 1000),
-        model: decision.selected_model,
-        choices: [{
-          index: 0,
-          message: { role: 'assistant', content },
-          finish_reason: lastChunk?.choices?.[0]?.finish_reason ?? 'stop',
-        }],
-        usage: {
-          prompt_tokens: inputTokens,
-          completion_tokens: outputTokens,
-          total_tokens: inputTokens + outputTokens,
-        },
-      });
     }
   });
 }
@@ -156,6 +209,7 @@ export function registerChatCompletions(
 function logRequest(
   db: Database.Database,
   decision: any,
+  actualModel: ModelRecord,
   startTime: number,
   inputTokens: number,
   outputTokens: number,
@@ -163,9 +217,8 @@ function logRequest(
   request: ChatRequest
 ): void {
   try {
-    const model = decision.candidates?.[0]?.model;
-    const costInput = model?.cost_input ?? 0;
-    const costOutput = model?.cost_output ?? 0;
+    const costInput = actualModel?.cost_input ?? 0;
+    const costOutput = actualModel?.cost_output ?? 0;
     const costUsd = (inputTokens * costInput + outputTokens * costOutput) / 1_000_000;
 
     db.prepare(`

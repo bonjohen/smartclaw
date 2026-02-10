@@ -10,6 +10,8 @@ import type {
 /**
  * Map our internal model IDs to actual Anthropic model identifiers.
  */
+const ANTHROPIC_API_VERSION = process.env.ANTHROPIC_API_VERSION ?? '2023-06-01';
+
 const ANTHROPIC_MODEL_MAP: Record<string, string> = {
   'anthropic/claude-haiku': 'claude-haiku-4-5-20251001',
   'anthropic/claude-sonnet': 'claude-sonnet-4-5-20250929',
@@ -51,7 +53,7 @@ export class AnthropicBackend implements Backend {
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
+        'anthropic-version': ANTHROPIC_API_VERSION,
       },
       body: JSON.stringify(body),
       signal: controller.signal,
@@ -70,6 +72,7 @@ export class AnthropicBackend implements Backend {
       return {
         stream: translateAnthropicStream(response.body, model.model_id),
         model_id: model.model_id,
+        model,
         abort: () => controller.abort(),
       };
     }
@@ -97,6 +100,7 @@ export class AnthropicBackend implements Backend {
     return {
       stream: (async function* () { yield chunk; })(),
       model_id: model.model_id,
+      model,
       abort: () => controller.abort(),
     };
   }

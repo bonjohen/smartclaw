@@ -1,7 +1,7 @@
 import { loadConfig } from './config.js';
 import { initDb, setDb, closeDb } from './db.js';
 import { createServer } from './server.js';
-import { startHealthCheckLoop } from './health/health-checker.js';
+import { startHealthCheckLoop, startCleanupLoop } from './health/health-checker.js';
 import { registerStats } from './routes/stats.js';
 
 async function main() {
@@ -21,7 +21,7 @@ async function main() {
   };
 
   // Create and configure the server
-  const app = createServer({ db, routerOptions });
+  const app = createServer({ db, routerOptions, apiKey: config.apiKey });
 
   // Register the stats endpoint (bonus)
   registerStats(app, db);
@@ -30,10 +30,14 @@ async function main() {
   const healthChecker = startHealthCheckLoop(db, config.healthCheckIntervalMs);
   console.log(`Health check loop started (interval: ${config.healthCheckIntervalMs}ms)`);
 
+  // Start periodic log cleanup (runs daily)
+  const logCleaner = startCleanupLoop(db);
+
   // Graceful shutdown
   const shutdown = async (signal: string) => {
     console.log(`\n${signal} received. Shutting down gracefully...`);
     healthChecker.stop();
+    logCleaner.stop();
     await app.close();
     closeDb();
     console.log('Shutdown complete.');

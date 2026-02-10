@@ -5,14 +5,18 @@ import { registerChatCompletions } from './routes/chat-completions.js';
 import { registerModels } from './routes/models.js';
 import { registerHealth } from './routes/health.js';
 
+/** Trusted sources that may appear in x-router-source header. */
+const TRUSTED_SOURCES = new Set(['heartbeat', 'cron', 'webhook']);
+
 export interface ServerOptions {
   db: Database.Database;
   routerOptions: RouterOptions;
+  apiKey?: string;
   logger?: boolean;
 }
 
 export function createServer(options: ServerOptions): FastifyInstance {
-  const { db, routerOptions, logger = true } = options;
+  const { db, routerOptions, apiKey, logger = true } = options;
 
   const app = Fastify({
     logger,
@@ -26,6 +30,22 @@ export function createServer(options: ServerOptions): FastifyInstance {
 
     if (request.method === 'OPTIONS') {
       return reply.status(204).send();
+    }
+
+    // Bearer token authentication (skip health endpoint for uptime monitors)
+    if (apiKey && request.url !== '/health') {
+      const auth = request.headers.authorization;
+      if (!auth || auth !== `Bearer ${apiKey}`) {
+        return reply.status(401).send({
+          error: { message: 'Invalid or missing API key', type: 'authentication_error' },
+        });
+      }
+    }
+
+    // Strip untrusted x-router-source/channel headers to prevent routing bypass
+    const source = request.headers['x-router-source'] as string | undefined;
+    if (source && !TRUSTED_SOURCES.has(source)) {
+      delete request.headers['x-router-source'];
     }
   });
 

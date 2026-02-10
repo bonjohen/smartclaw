@@ -57,11 +57,13 @@ function makeRoutingDecision(overrides: Partial<RoutingDecision> = {}): RoutingD
 }
 
 function makeMockStreamResponse(chunks: ChatCompletionChunk[], modelId = 'local/deepseek-r1-1.5b') {
+  const model = getModel(modelId);
   return {
     stream: (async function* () {
       for (const chunk of chunks) yield chunk;
     })(),
     model_id: modelId,
+    model,
     abort: () => {},
   };
 }

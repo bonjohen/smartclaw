@@ -57,6 +57,7 @@ export class OpenAIBackend implements Backend {
       return {
         stream: parseSSEStream(response.body),
         model_id: model.model_id,
+        model,
         abort: () => controller.abort(),
       };
     }
@@ -79,6 +80,7 @@ export class OpenAIBackend implements Backend {
     return {
       stream: (async function* () { yield chunk; })(),
       model_id: model.model_id,
+      model,
       abort: () => controller.abort(),
     };
   }

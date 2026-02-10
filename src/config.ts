@@ -10,6 +10,7 @@ export interface Config {
   ollamaEndpoint: string;
   routerModelName: string;
   healthCheckIntervalMs: number;
+  apiKey?: string;
 }
 
 function resolveDbPath(raw: string): string {
@@ -20,7 +21,7 @@ function resolveDbPath(raw: string): string {
 }
 
 export function loadConfig(): Config {
-  const port = parseInt(process.env.ROUTER_PORT ?? '8080', 10);
+  const port = parseInt(process.env.ROUTER_PORT ?? '3000', 10);
   if (isNaN(port) || port < 1 || port > 65535) {
     throw new Error(`Invalid ROUTER_PORT: ${process.env.ROUTER_PORT}`);
   }
@@ -34,11 +35,14 @@ export function loadConfig(): Config {
     throw new Error(`Invalid HEALTH_CHECK_INTERVAL_MS: ${process.env.HEALTH_CHECK_INTERVAL_MS}`);
   }
 
+  const apiKey = process.env.ROUTER_API_KEY || undefined;
+
   return {
     port,
     dbPath,
     ollamaEndpoint,
     routerModelName,
     healthCheckIntervalMs,
+    apiKey,
   };
 }

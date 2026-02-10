@@ -33,7 +33,7 @@ describe('loadConfig', () => {
     const loadConfig = await getLoadConfig();
     const config = loadConfig();
 
-    expect(config.port).toBe(8080);
+    expect(config.port).toBe(3000);
     expect(config.ollamaEndpoint).toBe('http://127.0.0.1:11434');
     expect(config.routerModelName).toBe('deepseek-r1:1.5b');
     expect(config.healthCheckIntervalMs).toBe(60000);

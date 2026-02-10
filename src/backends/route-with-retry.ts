@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import type { ChatRequest, RankedCandidate, StreamResponse } from '../types.js';
 import { NoAvailableModelError } from '../types.js';
 import { getBackend } from './backend.js';
+import { markUnhealthyCheck } from '../health/health-checker.js';
 
 /**
  * Try each candidate in ranked order. On failure, mark the provider/model
@@ -15,16 +16,19 @@ export async function routeWithRetry(
   for (const candidate of candidates) {
     try {
       const backend = getBackend(candidate.model);
-      return await backend.sendRequest(candidate.model, request);
+      const response = await backend.sendRequest(candidate.model, request);
+      return { ...response, model: candidate.model };
     } catch (err: any) {
       logFailure(candidate, err);
 
       if (is429(err)) {
         markRateLimited(db, candidate.model.provider);
-      }
-
-      if (isTimeout(err)) {
+      } else if (isTimeout(err)) {
         markUnhealthy(db, candidate.model.model_id);
+      } else if (isServerError(err)) {
+        // Track consecutive server errors via health log (marks unhealthy after 3)
+        const msg = err?.message ?? String(err);
+        markUnhealthyCheck(db, candidate.model.model_id, msg);
       }
 
       continue;
@@ -62,6 +66,14 @@ export function isTimeout(err: any): boolean {
     err?.cause?.code === 'ECONNREFUSED' ||
     err?.message?.toLowerCase()?.includes('timeout') ||
     err?.message?.toLowerCase()?.includes('econnrefused');
+}
+
+/**
+ * Check if an error represents a server-side failure (5xx).
+ */
+export function isServerError(err: any): boolean {
+  const status = err?.status ?? err?.statusCode;
+  return typeof status === 'number' && status >= 500 && status < 600;
 }
 
 /**

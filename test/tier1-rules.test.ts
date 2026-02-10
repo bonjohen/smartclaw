@@ -1,12 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { initDb } from '../src/db.js';
-import { matchTier1Rules } from '../src/router/tier1-rules.js';
+import { matchTier1Rules, invalidateRulesCache } from '../src/router/tier1-rules.js';
 import type { RequestMetadata } from '../src/types.js';
 
 let db: Database.Database;
 
 beforeEach(() => {
+  invalidateRulesCache();
   db = initDb(':memory:');
 });
 
@@ -174,6 +175,7 @@ describe('Tier 1 rule matching', () => {
   it('should skip disabled rules', () => {
     // Disable the heartbeat rule
     db.prepare("UPDATE routing_rules SET is_enabled = 0 WHERE match_source = 'heartbeat'").run();
+    invalidateRulesCache();
 
     const result = matchTier1Rules(db, makeMetadata({ source: 'heartbeat' }));
     // Should still match — but via catch-all, not the heartbeat rule

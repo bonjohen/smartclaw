@@ -205,6 +205,7 @@ export interface RequestMetadata {
 export interface StreamResponse {
   stream: AsyncIterable<ChatCompletionChunk>;
   model_id: string;
+  model: ModelRecord;
   abort: () => void;
 }
 

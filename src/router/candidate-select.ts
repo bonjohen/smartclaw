@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import type { ModelRecord, RoutingPolicy, RankedCandidate } from '../types.js';
+import { isBudgetExceeded } from '../health/budget-tracker.js';
 
 export interface SelectionCriteria {
   quality_floor: number;
@@ -23,7 +24,10 @@ export function selectCandidates(
   const locationOrder = policy.prefer_location_order.split(',').map(s => s.trim());
 
   // Check if budget is exceeded (cloud models should be excluded)
-  const budgetExceeded = isBudgetExceeded(db, policy);
+  const budgetExceeded = isBudgetExceeded(db);
+
+  // Clear expired rate limits before checking
+  clearExpiredRateLimits(db);
 
   // Get all enabled, healthy models
   let models: ModelRecord[];
@@ -112,26 +116,20 @@ function applyQualityTolerance(
   if (soft.length > 0) return soft;
 
   // Nothing within tolerance — return empty (triggers fallback)
-  return strict;
+  return [];
 }
 
 /**
- * Check if the cloud budget has been exceeded for the current day or month.
+ * Clear rate-limit flags for providers whose retry_after has expired.
  */
-function isBudgetExceeded(db: Database.Database, policy: RoutingPolicy): boolean {
-  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-  const month = today.slice(0, 7); // YYYY-MM
-
-  const daily = db.prepare(
-    "SELECT total_spend FROM budget_tracking WHERE period_type = 'daily' AND period_key = ?"
-  ).get(today) as { total_spend: number } | undefined;
-
-  const monthly = db.prepare(
-    "SELECT total_spend FROM budget_tracking WHERE period_type = 'monthly' AND period_key = ?"
-  ).get(month) as { total_spend: number } | undefined;
-
-  if (daily && daily.total_spend >= policy.budget_daily_usd) return true;
-  if (monthly && monthly.total_spend >= policy.budget_monthly_usd) return true;
-
-  return false;
+export function clearExpiredRateLimits(db: Database.Database): void {
+  db.prepare(`
+    UPDATE provider_rate_limits
+    SET is_rate_limited = 0,
+        limited_since = NULL,
+        retry_after = NULL
+    WHERE is_rate_limited = 1
+      AND retry_after IS NOT NULL
+      AND retry_after <= datetime('now')
+  `).run();
 }

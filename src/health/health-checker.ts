@@ -10,6 +10,8 @@ interface HealthLogEntry {
 }
 
 const UNHEALTHY_THRESHOLD = 3;
+const HEALTH_LOG_RETENTION_DAYS = 7;
+const REQUEST_LOG_RETENTION_DAYS = 30;
 
 /**
  * Start the background health check loop.
@@ -56,17 +58,23 @@ export async function checkAllModels(db: Database.Database): Promise<void> {
     'SELECT model_id, endpoint_url FROM models WHERE is_enabled = 1'
   ).all() as EnabledModel[];
 
-  for (const model of models) {
-    const start = Date.now();
-    try {
+  const results = await Promise.allSettled(
+    models.map(async (model) => {
+      const start = Date.now();
       await fetch(`${model.endpoint_url}/models`, {
         signal: AbortSignal.timeout(5000),
       });
-      const latencyMs = Date.now() - start;
-      markHealthy(db, model.model_id, latencyMs);
-    } catch (err: any) {
-      const errorMsg = err?.message ?? String(err);
-      markUnhealthyCheck(db, model.model_id, errorMsg);
+      return { model, latencyMs: Date.now() - start };
+    })
+  );
+
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    if (result.status === 'fulfilled') {
+      markHealthy(db, result.value.model.model_id, result.value.latencyMs);
+    } else {
+      const errorMsg = result.reason?.message ?? String(result.reason);
+      markUnhealthyCheck(db, models[i].model_id, errorMsg);
     }
   }
 }
@@ -131,4 +139,46 @@ export function markUnhealthyCheck(
       WHERE model_id = ?
     `).run(modelId);
   }
+}
+
+/**
+ * Delete old entries from model_health_log and request_log to prevent unbounded growth.
+ * Returns the number of rows deleted from each table.
+ */
+export function cleanupOldLogs(db: Database.Database): { healthLogsDeleted: number; requestLogsDeleted: number } {
+  const healthResult = db.prepare(
+    `DELETE FROM model_health_log WHERE checked_at < datetime('now', ? || ' days')`
+  ).run(`-${HEALTH_LOG_RETENTION_DAYS}`);
+
+  const requestResult = db.prepare(
+    `DELETE FROM request_log WHERE request_at < datetime('now', ? || ' days')`
+  ).run(`-${REQUEST_LOG_RETENTION_DAYS}`);
+
+  return {
+    healthLogsDeleted: healthResult.changes,
+    requestLogsDeleted: requestResult.changes,
+  };
+}
+
+/**
+ * Start a periodic log cleanup loop. Runs daily.
+ */
+export function startCleanupLoop(
+  db: Database.Database,
+  intervalMs = 24 * 60 * 60 * 1000
+): { stop: () => void } {
+  const timer = setInterval(() => {
+    try {
+      const result = cleanupOldLogs(db);
+      if (result.healthLogsDeleted > 0 || result.requestLogsDeleted > 0) {
+        console.log(`[cleanup] Deleted ${result.healthLogsDeleted} health logs, ${result.requestLogsDeleted} request logs`);
+      }
+    } catch (err) {
+      console.error('[cleanup] Error:', err);
+    }
+  }, intervalMs);
+
+  return {
+    stop: () => clearInterval(timer),
+  };
 }

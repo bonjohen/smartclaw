@@ -267,6 +267,7 @@ function logRequest(
       `).run(month, costUsd, inputTokens, outputTokens);
     }
   } catch (err) {
-    console.error('[logRequest] Failed to log request:', err);
+    // logRequest failure should not crash the request; use stderr for operational logging
+    process.stderr.write(`[logRequest] Failed to log request: ${err}\n`);
   }
 }

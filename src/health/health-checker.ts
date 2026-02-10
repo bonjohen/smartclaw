@@ -1,5 +1,15 @@
 import type Database from 'better-sqlite3';
 
+export interface Logger {
+  info(msg: string, ...args: unknown[]): void;
+  error(msg: string, ...args: unknown[]): void;
+}
+
+const defaultLogger: Logger = {
+  info: (msg, ...args) => process.stdout.write(`${msg} ${args.map(String).join(' ')}\n`),
+  error: (msg, ...args) => process.stderr.write(`${msg} ${args.map(String).join(' ')}\n`),
+};
+
 interface EnabledModel {
   model_id: string;
   endpoint_url: string;
@@ -19,7 +29,8 @@ const REQUEST_LOG_RETENTION_DAYS = 30;
  */
 export function startHealthCheckLoop(
   db: Database.Database,
-  intervalMs: number
+  intervalMs: number,
+  logger: Logger = defaultLogger
 ): { stop: () => void } {
   let timer: ReturnType<typeof setInterval> | null = null;
   let running = false;
@@ -30,7 +41,7 @@ export function startHealthCheckLoop(
     try {
       await checkAllModels(db);
     } catch (err) {
-      console.error('[health-checker] Loop error:', err);
+      logger.error('[health-checker] Loop error:', err);
     } finally {
       running = false;
     }
@@ -165,16 +176,17 @@ export function cleanupOldLogs(db: Database.Database): { healthLogsDeleted: numb
  */
 export function startCleanupLoop(
   db: Database.Database,
-  intervalMs = 24 * 60 * 60 * 1000
+  intervalMs = 24 * 60 * 60 * 1000,
+  logger: Logger = defaultLogger
 ): { stop: () => void } {
   const timer = setInterval(() => {
     try {
       const result = cleanupOldLogs(db);
       if (result.healthLogsDeleted > 0 || result.requestLogsDeleted > 0) {
-        console.log(`[cleanup] Deleted ${result.healthLogsDeleted} health logs, ${result.requestLogsDeleted} request logs`);
+        logger.info(`[cleanup] Deleted ${result.healthLogsDeleted} health logs, ${result.requestLogsDeleted} request logs`);
       }
     } catch (err) {
-      console.error('[cleanup] Error:', err);
+      logger.error('[cleanup] Error:', err);
     }
   }, intervalMs);
 

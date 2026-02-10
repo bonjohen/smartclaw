@@ -33,11 +33,9 @@ export function extractMetadata(request: ChatRequest): RequestMetadata {
   );
   const estimatedTokens = Math.max(Math.ceil(totalChars / 4), 100);
 
-  // Check for media (content arrays with image_url type would indicate media)
-  const hasMedia = request.messages.some(m =>
-    Array.isArray(m.content) ||
-    (typeof m.content === 'string' && /\[image\]|\[file\]|\[attachment\]/i.test(m.content))
-  );
+  // Check for media: only detect from structured content (array-type content
+  // with image_url entries), not regex on string content which false-positives
+  const hasMedia = request.messages.some(m => Array.isArray(m.content));
 
   return {
     text_preview: typeof textPreview === 'string' ? textPreview : '',

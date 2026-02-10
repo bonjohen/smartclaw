@@ -7,9 +7,10 @@ import { selectCandidates } from '../src/router/candidate-select.js';
 import { isServerError } from '../src/backends/route-with-retry.js';
 import { cleanupOldLogs } from '../src/health/health-checker.js';
 import { matchTier1Rules, invalidateRulesCache } from '../src/router/tier1-rules.js';
+import { extractMetadata } from '../src/router/router.js';
 import type { FastifyInstance } from 'fastify';
 import type { RouterOptions } from '../src/router/router.js';
-import type { ChatCompletionChunk, RoutingDecision, ModelRecord, RequestMetadata } from '../src/types.js';
+import type { ChatCompletionChunk, RoutingDecision, ModelRecord, RequestMetadata, ChatRequest } from '../src/types.js';
 
 // Mock both the router and backend retry for controlled testing
 vi.mock('../src/router/router.js', async (importOriginal) => {
@@ -582,5 +583,67 @@ describe('tier1 rules caching', () => {
     const after = matchTier1Rules(db, metadata);
     expect(after.matched).toBe(true);
     if (after.matched) expect(after.rule.priority).not.toBe(10);
+  });
+});
+
+// ── Low: Media detection uses structured content, not regex ──
+
+describe('media detection', () => {
+  it('should not detect media from string content containing "[image]"', () => {
+    const request: ChatRequest = {
+      model: 'auto',
+      messages: [{ role: 'user', content: 'Click on [image] above to see the result' }],
+    };
+    const metadata = extractMetadata(request);
+    expect(metadata.has_media).toBe(false);
+  });
+
+  it('should not detect media from string content containing "[file]"', () => {
+    const request: ChatRequest = {
+      model: 'auto',
+      messages: [{ role: 'user', content: 'Put the [file] in the folder' }],
+    };
+    const metadata = extractMetadata(request);
+    expect(metadata.has_media).toBe(false);
+  });
+
+  it('should detect media from array-type content', () => {
+    const request: ChatRequest = {
+      model: 'auto',
+      messages: [{ role: 'user', content: ['image data'] as any }],
+    };
+    const metadata = extractMetadata(request);
+    expect(metadata.has_media).toBe(true);
+  });
+});
+
+// ── Low: Stats endpoint does not expose request_preview ──
+
+describe('stats PII redaction', () => {
+  it('should not include request_preview in /stats recent_requests', async () => {
+    // Insert a request log with known preview text
+    db.prepare(`
+      INSERT INTO request_log (source, tier_used, selected_model, success, latency_ms, request_preview)
+      VALUES ('test', 1, 'local/deepseek-r1-1.5b', 1, 50, 'This is sensitive user content')
+    `).run();
+
+    // We need to register stats endpoint on our test app
+    const { registerStats } = await import('../src/routes/stats.js');
+    // Create a fresh server with stats
+    const statsApp = createServer({ db, routerOptions, logger: false });
+    registerStats(statsApp, db);
+    await statsApp.ready();
+
+    const res = await statsApp.inject({ method: 'GET', url: '/stats' });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+
+    // Verify recent_requests exists but no entry contains request_preview
+    expect(body.recent_requests.length).toBeGreaterThan(0);
+    for (const req of body.recent_requests) {
+      expect(req).not.toHaveProperty('request_preview');
+    }
+
+    await statsApp.close();
   });
 });

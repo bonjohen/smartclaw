@@ -48,9 +48,10 @@ export function registerStats(app: FastifyInstance, db: Database.Database): void
       'SELECT budget_daily_usd, budget_monthly_usd FROM routing_policy WHERE id = 1'
     ).get() as any;
 
-    // Recent requests
+    // Recent requests (request_preview intentionally excluded to prevent PII exposure)
     const recentRequests = db.prepare(`
-      SELECT request_at, selected_model, tier_used, latency_ms, cost_usd, success
+      SELECT request_at, source, channel, selected_model, tier_used,
+             input_tokens, output_tokens, latency_ms, cost_usd, success
       FROM request_log
       ORDER BY request_at DESC
       LIMIT 20

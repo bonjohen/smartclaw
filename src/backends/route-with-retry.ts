@@ -40,8 +40,9 @@ export async function routeWithRetry(
 
 function logFailure(candidate: RankedCandidate, err: any): void {
   const msg = err?.message ?? String(err);
-  console.error(
-    `[route-with-retry] Failed ${candidate.model.model_id} (rank ${candidate.rank}): ${msg}`
+  // Use stderr for operational logging; structured logging handled at route level
+  process.stderr.write(
+    `[route-with-retry] Failed ${candidate.model.model_id} (rank ${candidate.rank}): ${msg}\n`
   );
 }
 

@@ -26,12 +26,13 @@ async function main() {
   // Register the stats endpoint (bonus)
   registerStats(app, db);
 
-  // Start background health check loop
-  const healthChecker = startHealthCheckLoop(db, config.healthCheckIntervalMs);
-  console.log(`Health check loop started (interval: ${config.healthCheckIntervalMs}ms)`);
+  // Start background health check loop (pass Fastify's pino logger)
+  const logger = app.log;
+  const healthChecker = startHealthCheckLoop(db, config.healthCheckIntervalMs, logger);
+  logger.info(`Health check loop started (interval: ${config.healthCheckIntervalMs}ms)`);
 
   // Start periodic log cleanup (runs daily)
-  const logCleaner = startCleanupLoop(db);
+  const logCleaner = startCleanupLoop(db, undefined, logger);
 
   // Graceful shutdown
   const shutdown = async (signal: string) => {

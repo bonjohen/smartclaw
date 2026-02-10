@@ -72,18 +72,21 @@ export function selectCandidates(
   // Apply quality floor with tolerance (PDR Section 7.2)
   models = applyQualityTolerance(models, criteria.quality_floor, policy.quality_tolerance);
 
+  // Pre-compute sort keys to avoid recomputation during comparisons
+  const sortKeys = new Map(models.map(m => [
+    m.model_id,
+    { loc: locationOrder.indexOf(m.location), cost: m.cost_input + m.cost_output },
+  ]));
+
   // Sort by: location preference, then cost (cheapest), then quality (highest)
   models.sort((a, b) => {
+    const ka = sortKeys.get(a.model_id)!;
+    const kb = sortKeys.get(b.model_id)!;
+
     // 1. Location preference
-    const locA = locationOrder.indexOf(a.location);
-    const locB = locationOrder.indexOf(b.location);
-    if (locA !== locB) return locA - locB;
-
-    // 2. Cheapest first (total cost = cost_input + cost_output as proxy)
-    const costA = a.cost_input + a.cost_output;
-    const costB = b.cost_input + b.cost_output;
-    if (costA !== costB) return costA - costB;
-
+    if (ka.loc !== kb.loc) return ka.loc - kb.loc;
+    // 2. Cheapest first
+    if (ka.cost !== kb.cost) return ka.cost - kb.cost;
     // 3. Highest quality (tiebreak)
     return b.quality_score - a.quality_score;
   });

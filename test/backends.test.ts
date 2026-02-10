@@ -554,6 +554,121 @@ describe('AnthropicBackend stream translation', () => {
   });
 });
 
+// ── Anthropic non-streaming response tests ──
+
+describe('AnthropicBackend non-streaming', () => {
+  let originalFetch: typeof globalThis.fetch;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    delete process.env.ANTHROPIC_API_KEY;
+  });
+
+  it('should translate a non-streaming JSON response to OpenAI chunk format', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      body: null, // no body signals non-streaming since isStreaming check requires body
+      json: () => Promise.resolve({
+        id: 'msg_abc123',
+        content: [
+          { type: 'text', text: 'Hello ' },
+          { type: 'text', text: 'world!' },
+        ],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 10, output_tokens: 5 },
+      }),
+    });
+
+    const { AnthropicBackend } = await import('../src/backends/anthropic-backend.js');
+    const backend = new AnthropicBackend();
+    const model = getModel('anthropic/claude-sonnet');
+    const result = await backend.sendRequest(model, makeRequest({ stream: false }));
+
+    expect(result.model_id).toBe('anthropic/claude-sonnet');
+    expect(result.model.model_id).toBe('anthropic/claude-sonnet');
+
+    // Collect chunks from the single-item generator
+    const received: ChatCompletionChunk[] = [];
+    for await (const chunk of result.stream) {
+      received.push(chunk);
+    }
+
+    expect(received).toHaveLength(1);
+    const chunk = received[0];
+    expect(chunk.choices[0].delta.role).toBe('assistant');
+    expect(chunk.choices[0].delta.content).toBe('Hello world!');
+    expect(chunk.choices[0].finish_reason).toBe('stop');
+    expect(chunk.usage).toBeDefined();
+    expect(chunk.usage!.prompt_tokens).toBe(10);
+    expect(chunk.usage!.completion_tokens).toBe(5);
+    expect(chunk.usage!.total_tokens).toBe(15);
+  });
+
+  it('should handle non-streaming response with no usage data', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      body: null,
+      json: () => Promise.resolve({
+        id: 'msg_abc456',
+        content: [{ type: 'text', text: 'Just text' }],
+        stop_reason: 'max_tokens',
+      }),
+    });
+
+    const { AnthropicBackend } = await import('../src/backends/anthropic-backend.js');
+    const backend = new AnthropicBackend();
+    const model = getModel('anthropic/claude-sonnet');
+    const result = await backend.sendRequest(model, makeRequest({ stream: false }));
+
+    const received: ChatCompletionChunk[] = [];
+    for await (const chunk of result.stream) {
+      received.push(chunk);
+    }
+
+    expect(received).toHaveLength(1);
+    expect(received[0].choices[0].delta.content).toBe('Just text');
+    expect(received[0].choices[0].finish_reason).toBe('length');
+    expect(received[0].usage).toBeUndefined();
+  });
+
+  it('should throw on missing API key', async () => {
+    delete process.env.ANTHROPIC_API_KEY;
+
+    const { AnthropicBackend } = await import('../src/backends/anthropic-backend.js');
+    const backend = new AnthropicBackend();
+    const model = getModel('anthropic/claude-sonnet');
+
+    await expect(
+      backend.sendRequest(model, makeRequest({ stream: false }))
+    ).rejects.toThrow(/Missing API key/);
+  });
+
+  it('should throw on non-OK HTTP response with status', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: () => Promise.resolve('{"error":"bad request"}'),
+    });
+
+    const { AnthropicBackend } = await import('../src/backends/anthropic-backend.js');
+    const backend = new AnthropicBackend();
+    const model = getModel('anthropic/claude-sonnet');
+
+    try {
+      await backend.sendRequest(model, makeRequest({ stream: false }));
+      expect.unreachable('should have thrown');
+    } catch (err: any) {
+      expect(err.message).toContain('Anthropic backend error 400');
+      expect(err.status).toBe(400);
+    }
+  });
+});
+
 // ── Helpers ──
 
 /**

@@ -5,6 +5,8 @@ import {
   markHealthy,
   markUnhealthyCheck,
   checkAllModels,
+  startHealthCheckLoop,
+  startCleanupLoop,
 } from '../src/health/health-checker.js';
 import {
   recordRequestCost,
@@ -167,6 +169,119 @@ describe('checkAllModels', () => {
     expect(model.is_healthy).toBe(1);
 
     globalThis.fetch = originalFetch;
+  });
+});
+
+// ── startHealthCheckLoop ──
+
+describe('startHealthCheckLoop', () => {
+  let originalFetch: typeof globalThis.fetch;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.useRealTimers();
+  });
+
+  it('should run immediately and then on interval', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+
+    const silentLogger = { info: () => {}, error: () => {} };
+    const { stop } = startHealthCheckLoop(db, 5000, silentLogger);
+
+    // Immediate run is async — flush promises
+    await vi.advanceTimersByTimeAsync(0);
+
+    // After immediate run, fetch should have been called (once per enabled model)
+    const enabledCount = (db.prepare('SELECT COUNT(*) as cnt FROM models WHERE is_enabled = 1').get() as any).cnt;
+    expect(globalThis.fetch).toHaveBeenCalledTimes(enabledCount);
+
+    // Advance to next interval
+    (globalThis.fetch as any).mockClear();
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(enabledCount);
+
+    stop();
+  });
+
+  it('should stop running after stop() is called', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+
+    const silentLogger = { info: () => {}, error: () => {} };
+    const { stop } = startHealthCheckLoop(db, 5000, silentLogger);
+
+    await vi.advanceTimersByTimeAsync(0);
+    stop();
+
+    (globalThis.fetch as any).mockClear();
+    await vi.advanceTimersByTimeAsync(10000);
+
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('should catch and log errors without crashing the loop', async () => {
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error('total failure'));
+
+    const errors: string[] = [];
+    const errorLogger = {
+      info: () => {},
+      error: (msg: string) => { errors.push(msg); },
+    };
+
+    const { stop } = startHealthCheckLoop(db, 5000, errorLogger);
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Loop should have logged an error but not crashed
+    // The error comes from checkAllModels Promise.allSettled settling rejected promises
+    // but the outer try/catch in run() handles unexpected throws
+    // Either way, the loop should continue
+    (globalThis.fetch as any).mockClear();
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+    await vi.advanceTimersByTimeAsync(5000);
+
+    // Loop still running — fetch was called again
+    expect(globalThis.fetch).toHaveBeenCalled();
+
+    stop();
+  });
+});
+
+// ── startCleanupLoop ──
+
+describe('startCleanupLoop', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('should run cleanup on interval and delete old logs', async () => {
+    // Insert an old health log
+    db.prepare(`
+      INSERT INTO model_health_log (model_id, is_healthy, latency_ms, consecutive_failures, checked_at)
+      VALUES ('local/deepseek-r1-1.5b', 1, 50, 0, datetime('now', '-8 days'))
+    `).run();
+
+    const silentLogger = { info: () => {}, error: () => {} };
+    const { stop } = startCleanupLoop(db, 1000, silentLogger);
+
+    await vi.advanceTimersByTimeAsync(1000);
+
+    // Old health log should have been deleted
+    const count = (db.prepare(
+      "SELECT COUNT(*) as cnt FROM model_health_log WHERE checked_at < datetime('now', '-7 days')"
+    ).get() as any).cnt;
+    expect(count).toBe(0);
+
+    stop();
   });
 });
 

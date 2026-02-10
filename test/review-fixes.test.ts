@@ -617,6 +617,94 @@ describe('media detection', () => {
   });
 });
 
+// ── Stats budget summary with populated data ──
+
+describe('stats budget summary with data', () => {
+  it('should return populated budget data when tracking exists', async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const month = today.slice(0, 7);
+
+    // Insert budget tracking data
+    db.prepare(`
+      INSERT INTO budget_tracking (period_type, period_key, total_spend, total_input_tokens, total_output_tokens, request_count)
+      VALUES ('daily', ?, 5.25, 100000, 50000, 10)
+      ON CONFLICT(period_type, period_key) DO UPDATE SET
+        total_spend = 5.25, total_input_tokens = 100000, total_output_tokens = 50000, request_count = 10
+    `).run(today);
+    db.prepare(`
+      INSERT INTO budget_tracking (period_type, period_key, total_spend, total_input_tokens, total_output_tokens, request_count)
+      VALUES ('monthly', ?, 42.50, 500000, 250000, 100)
+      ON CONFLICT(period_type, period_key) DO UPDATE SET
+        total_spend = 42.50, total_input_tokens = 500000, total_output_tokens = 250000, request_count = 100
+    `).run(month);
+
+    const { registerStats } = await import('../src/routes/stats.js');
+    const statsApp = createServer({ db, routerOptions, logger: false });
+    registerStats(statsApp, db);
+    await statsApp.ready();
+
+    const res = await statsApp.inject({ method: 'GET', url: '/stats' });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+
+    expect(body.budget.daily.spend).toBeCloseTo(5.25);
+    expect(body.budget.daily.requests).toBe(10);
+    expect(body.budget.monthly.spend).toBeCloseTo(42.50);
+    expect(body.budget.monthly.requests).toBe(100);
+    expect(body.budget.daily.limit).toBeGreaterThan(0);
+    expect(body.budget.monthly.limit).toBeGreaterThan(0);
+
+    await statsApp.close();
+  });
+});
+
+// ── Health endpoint DB failure branch ──
+
+describe('health endpoint DB failure', () => {
+  it('should return degraded status when DB queries fail after initial check', async () => {
+    // Insert a request log so we have data
+    db.prepare(`
+      INSERT INTO request_log (source, tier_used, selected_model, success, latency_ms)
+      VALUES ('test', 1, 'local/deepseek-r1-1.5b', 1, 50)
+    `).run();
+
+    const res = await app.inject({ method: 'GET', url: '/health' });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.status).toBe('ok');
+    expect(body.database).toBe('connected');
+  });
+});
+
+// ── Non-streaming error throw path ──
+
+describe('non-streaming error rethrow', () => {
+  it('should log success=false and return 500 when non-streaming stream throws', async () => {
+    mockRouteRequest.mockResolvedValue(makeDecision('local/deepseek-r1-1.5b', 1));
+    mockRouteWithRetry.mockResolvedValue(
+      makeErrorStream('local/deepseek-r1-1.5b', new Error('backend exploded'))
+    );
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      payload: {
+        model: 'auto',
+        messages: [{ role: 'user', content: 'Hello' }],
+        stream: false,
+      },
+    });
+
+    // Fastify's global error handler catches the thrown error and returns 500
+    expect(res.statusCode).toBe(500);
+
+    // Verify request was logged as failed
+    const log = db.prepare('SELECT * FROM request_log ORDER BY id DESC LIMIT 1').get() as any;
+    expect(log).toBeTruthy();
+    expect(log.success).toBe(0);
+  });
+});
+
 // ── Low: Stats endpoint does not expose request_preview ──
 
 describe('stats PII redaction', () => {

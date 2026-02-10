@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { initDb } from '../src/db.js';
-import { parseClassification, mapClassificationToCriteria } from '../src/router/tier2-classify.js';
+import { parseClassification, mapClassificationToCriteria, classifyRequest } from '../src/router/tier2-classify.js';
 import type { ClassificationResult } from '../src/types.js';
 
 let db: Database.Database;
@@ -192,5 +192,132 @@ describe('mapClassificationToCriteria', () => {
     };
     const criteria = mapClassificationToCriteria(db, classification);
     expect(criteria.quality_floor).toBe(40);
+  });
+});
+
+// ── classifyRequest (real fetch pipeline) ──
+
+describe('classifyRequest', () => {
+  const options = {
+    ollamaEndpoint: 'http://127.0.0.1:11434',
+    modelName: 'deepseek-r1:1.5b',
+    timeoutMs: 1000,
+  };
+
+  let originalFetch: typeof globalThis.fetch;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('should parse valid classification from Ollama response', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        message: {
+          content: '{"complexity":"complex","task_type":"coding","estimated_tokens":2000,"sensitive":false}',
+        },
+      }),
+    });
+
+    const result = await classifyRequest('Write a web server in Rust', options);
+    expect(result.complexity).toBe('complex');
+    expect(result.task_type).toBe('coding');
+    expect(result.estimated_tokens).toBe(2000);
+    expect(result.sensitive).toBe(false);
+
+    // Verify fetch was called with correct URL and body
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      'http://127.0.0.1:11434/api/chat',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+  });
+
+  it('should return defaults when Ollama returns non-OK response', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+    });
+
+    const result = await classifyRequest('Hello', options);
+    expect(result).toEqual({
+      complexity: 'medium',
+      task_type: 'conversation',
+      estimated_tokens: 1000,
+      sensitive: false,
+    });
+  });
+
+  it('should return defaults when Ollama returns empty content', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ message: { content: '' } }),
+    });
+
+    const result = await classifyRequest('Hello', options);
+    expect(result).toEqual({
+      complexity: 'medium',
+      task_type: 'conversation',
+      estimated_tokens: 1000,
+      sensitive: false,
+    });
+  });
+
+  it('should return defaults when Ollama returns malformed JSON', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        message: { content: 'I am a helpful assistant, here is the classification...' },
+      }),
+    });
+
+    const result = await classifyRequest('Hello', options);
+    expect(result).toEqual({
+      complexity: 'medium',
+      task_type: 'conversation',
+      estimated_tokens: 1000,
+      sensitive: false,
+    });
+  });
+
+  it('should return defaults on network error (fetch throws)', async () => {
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'));
+
+    const result = await classifyRequest('Hello', options);
+    expect(result).toEqual({
+      complexity: 'medium',
+      task_type: 'conversation',
+      estimated_tokens: 1000,
+      sensitive: false,
+    });
+  });
+
+  it('should truncate long input text to 500 chars in the prompt', async () => {
+    let capturedBody: any;
+    globalThis.fetch = vi.fn().mockImplementation((_url: string, init: any) => {
+      capturedBody = JSON.parse(init.body);
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({
+          message: { content: '{"complexity":"medium","task_type":"conversation","estimated_tokens":500,"sensitive":false}' },
+        }),
+      });
+    });
+
+    const longText = 'x'.repeat(1000);
+    await classifyRequest(longText, options);
+
+    // The user message content should contain at most 500 chars of the original text
+    const userMsg = capturedBody.messages.find((m: any) => m.role === 'user');
+    // classifyUserPrompt prepends "Classify this request:\n\n" then slices text to 500
+    expect(userMsg.content).toContain('x'.repeat(500));
+    expect(userMsg.content).not.toContain('x'.repeat(501));
   });
 });
